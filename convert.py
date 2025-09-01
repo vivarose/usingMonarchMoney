@@ -1,7 +1,29 @@
 """
 Viva R. Horowitz
 Vibe-coded using chatgpt
-2025-07-05
+
+The required CSV format for importing to Monarch and exporting is 8 columns, 
+which must be listed in the following order in the spreadsheet table (see link
+to download an example in the next section). If you're getting an error, 
+try not including a header row. 
+1. Date 
+2. Merchant
+3. Category 
+4. Account 
+5. Original Statement 
+6. Notes 
+7. Amount 
+8. Tags 
+
+Note: Monarch uses positive numbers for income and negative numbers for expenses. 
+So an amount listed as +$100.00 would be seen as income, and 
+-$100.00 would be seen as an expense. 
+
+Some apps and banks export expenses as positive numbers, or with parenthesis 
+around them [i.e. ($100)], which means they will show up incorrectly if 
+imported directly into Monarch.
+
+2025-07-05 and 2025-08-31
 """
 
 import pandas as pd
@@ -10,10 +32,12 @@ from tkinter import Tk, filedialog
 import os
 import tempfile
 
+
 def convert_venmo_to_monarch(venmo_csv_path, monarch_csv_path):
     """
     Convert a single Venmo CSV export to a Monarch import CSV.
     Paths are normalized for Windows and stripped of extra whitespace.
+    Automatically fills in categories based on vendor/note rules.
     """
     venmo_csv_path = os.path.normpath(venmo_csv_path.strip())
     monarch_csv_path = os.path.normpath(monarch_csv_path.strip())
@@ -37,34 +61,61 @@ def convert_venmo_to_monarch(venmo_csv_path, monarch_csv_path):
     # Step 3: Drop rows missing type or amount
     df = df.dropna(subset=['Type', 'Amount (total)'])
 
+    weekdays = {'monday','tuesday','wednesday','thursday','friday','saturday','sunday'}
+
+    def infer_category(merchant, note):
+        note_lower = str(note).lower()
+        if merchant == "Stephanie Fancher":
+            return "House cleaning"
+        if merchant == "Meg Young":
+            return "House Maintenance"
+        if merchant == "Kaya Lutz" or merchant == "Senna Camp" or \
+            merchant == "josie cooper" or merchant == "Cloee EldevikLaCotera":
+                return "Child Care"
+        if "watching mendel" in note_lower or "babysitting" in note_lower:
+            return "Child Care"
+        if note_lower.strip() in weekdays:
+            return "Child Care"
+        if merchant == "Andrew Horowitz":
+            return "Inheritance maintenance"
+        return ""
+
     def process_row(row):
         tx_type = str(row['Type']).strip()
         note = str(row['Note']).strip()
-
-        if tx_type == 'Payment':
-            merchant = str(row['To']).strip()
-            sign = -1
-        elif tx_type == 'Charge':
-            merchant = str(row['From']).strip()
-            sign = 1
-        else:
-            return None
-
-        try:
-            date = pd.to_datetime(row['Datetime']).strftime('%Y-%m-%d')
-        except Exception:
-            return None
-
+    
         amt_raw = str(row['Amount (total)'])
         amt_clean = amt_raw.replace('$', '').replace(',', '').replace('(', '-').replace(')', '').replace('−', '-').replace('--', '-').replace(' ', '')
         try:
-            amount = sign * float(amt_clean)
+            amount = float(amt_clean)
         except Exception:
             return None
-
+    
+        # Direction & merchant
+        if tx_type == 'Payment':
+            if amount < 0:
+                merchant = str(row['To']).strip()   # You paid them
+            else:
+                merchant = str(row['From']).strip() # You received money
+        elif tx_type == 'Charge':
+            merchant = str(row['From']).strip()
+        else:
+            return None
+    
+    
+        category = infer_category(merchant, note)
+    
         return pd.Series([
-            date, merchant, "", "Venmo", note, note, f"{amount:.2f}", ""
+            pd.to_datetime(row['Datetime']).strftime('%Y-%m-%d'),
+            merchant,
+            category,
+            "Venmo",
+            note,
+            note,
+            f"{amount:.2f}",
+            ""
         ])
+
 
     output_df = df.apply(process_row, axis=1).dropna()
 
@@ -72,10 +123,11 @@ def convert_venmo_to_monarch(venmo_csv_path, monarch_csv_path):
     output_df.to_csv(monarch_csv_path, index=False, header=False)
 
 
+
 def select_multiple_venmo():
     """
     Open a file dialog to select multiple Venmo CSV exports.
-    Convert them all to Monarch format and combine into one CSV.
+    Convert them all to Monarch format with categories, and combine into one CSV.
     """
 
     # Hide the root Tk window
@@ -83,10 +135,10 @@ def select_multiple_venmo():
     root.withdraw()
 
     # Step 1: Ask user to select Venmo files
-    venmo_files = list(filedialog.askopenfilenames(
+    venmo_files = filedialog.askopenfilenames(
         title="Select Venmo Export CSV files",
         filetypes=[("CSV files", "*.csv")]
-    ))
+    )
 
     if not venmo_files:
         print("No files selected.")
@@ -106,28 +158,39 @@ def select_multiple_venmo():
     # Step 3: Convert each file and collect results
     all_outputs = []
 
-    print("Selected files:", venmo_files)
+    # print(f"Selected files: {venmo_files}")
 
     for venmo_file in venmo_files:
-        venmo_file = os.path.normpath(venmo_file.strip())
-        print("Processing:", venmo_file)
+        venmo_file = os.path.normpath(venmo_file)
+        print(f"Processing: {venmo_file}")
 
+        # Use a temporary file for each conversion
         temp_path = tempfile.mktemp(suffix=".csv")
-        try:
-            convert_venmo_to_monarch(venmo_file, temp_path)
-        except Exception as e:
-            print(f"Error converting {venmo_file}: {e}")
-            continue
+        convert_venmo_to_monarch(venmo_file, temp_path)
 
-        # Read back and append
+        # Read back the converted file and append
         df = pd.read_csv(temp_path, header=None)
         all_outputs.append(df)
 
     # Step 4: Concatenate everything
     if all_outputs:
         combined_df = pd.concat(all_outputs, ignore_index=True)
-        output_file = os.path.normpath(output_file.strip())
+
+        # Convert first column to datetime for sorting
+        combined_df[0] = pd.to_datetime(combined_df[0], errors='coerce')
+        combined_df = combined_df.sort_values(by=0)  # Sort by Date
+        combined_df[0] = combined_df[0].dt.strftime('%Y-%m-%d')  # Format back to string
+
         combined_df.to_csv(output_file, index=False, header=False)
         print(f"Combined Monarch import file saved to {output_file}")
+        print("Monarch: You can upload a .CSV file for a single account on the account details page using the edit button in the top right:",
+              "\n • On desktop, navigate to Accounts and select the account to which you want to import.",
+              "\n • Select Edit > Upload transactions.\n • Select Upload a .CSV file",
+              "\n • Choose the .CSV file and click Add to account",
+              "\n • An 'Upload is complete' pop-up will appear in the bottom right-hand corner")
+        
     else:
         print("No valid Venmo data found.")
+        
+        
+
