@@ -23,6 +23,8 @@ Some apps and banks export expenses as positive numbers, or with parenthesis
 around them [i.e. ($100)], which means they will show up incorrectly if 
 imported directly into Monarch.
 
+To upload: in Monarch, click "Edit" then "Upload transactions"
+
 2025-07-05 and 2025-08-31
 """
 
