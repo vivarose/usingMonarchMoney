@@ -3,6 +3,9 @@ convertPayPal.py
 Viva R. Horowitz
 vibe-coded using chatGPT
 2025-07-05
+
+
+Download paypal_csv from https://www.paypal.com/reports/dlog
 """
 
 import pandas as pd
