@@ -145,13 +145,15 @@ def convert_paypal_to_monarch(paypal_csv_path: str, monarch_csv_path: str, accou
                 "Tags": ""
             })
 
+    # If there are any issues in the future, consider deleting the header line.
     monarch_df = pd.DataFrame(monarch_rows, columns=[
         "Date", "Merchant", "Category", "Account", "Original Statement", "Notes", "Amount", "Tags"
     ])
 
-    print(f"Final rows to export: {len(monarch_df)}")
+    print(f"Final number of rows to export: {len(monarch_df)}")
     monarch_df.to_csv(monarch_csv_path, index=False)
     print(f"Saved Monarch CSV to '{monarch_csv_path}'")
+    print('On Monarch website, click "Edit" then "Upload transactions"')
 
 
 if __name__ == "__main__":
